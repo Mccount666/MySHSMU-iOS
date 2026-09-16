@@ -32,7 +32,22 @@ enum CaptchaSolver {
     // MARK: - Vision
 
     private static func recognizeText(in image: CGImage) async -> String? {
-        let request = VNRecognizeTextRequest()
+        let once = ResumeOnce()
+
+        // The handler has to be supplied at construction: `completionHandler`
+        // is get-only, and the closure needs `once` to already exist.
+        let request = VNRecognizeTextRequest { request, error in
+            if let error {
+                Log.error("CaptchaSolver", "Vision failed: \(error.localizedDescription)")
+                once.resume(nil)
+                return
+            }
+            let observations = request.results as? [VNRecognizedTextObservation] ?? []
+            let text = observations
+                .compactMap { $0.topCandidates(1).first?.string }
+                .joined(separator: "\n")
+            once.resume(text)
+        }
         request.recognitionLevel = .accurate
         // Language correction would "fix" `1+2=?` into prose; captchas need the
         // raw glyphs, matching ML Kit's default recogniser behaviour.
@@ -40,25 +55,12 @@ enum CaptchaSolver {
         request.recognitionLanguages = ["en-US"]
 
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        let once = ResumeOnce()
 
         // The continuation type is spelled out: leaving it to inference makes
         // the compiler settle on `String` and then reject `ResumeOnce.attach`.
         let recognised: String? = await withCheckedContinuation {
             (continuation: CheckedContinuation<String?, Never>) in
             once.attach(continuation)
-            request.completionHandler = { request, error in
-                if let error {
-                    Log.error("CaptchaSolver", "Vision failed: \(error.localizedDescription)")
-                    once.resume(nil)
-                    return
-                }
-                let observations = request.results as? [VNRecognizedTextObservation] ?? []
-                let text = observations
-                    .compactMap { $0.topCandidates(1).first?.string }
-                    .joined(separator: "\n")
-                once.resume(text)
-            }
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     try handler.perform([request])
