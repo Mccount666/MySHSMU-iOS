@@ -114,10 +114,13 @@ jobs:
           if-no-files-found: ignore
 
       # 3. And the test suite has to pass.
+      #
+      # No `-quiet` here: it swallows the failure detail, leaving only
+      # "TEST FAILED" and an exit code.
       - name: Run the unit tests
         run: |
           set +e
-          xcodebuild test -quiet \
+          xcodebuild test \
             -project MySHSMUAll.xcodeproj \
             -scheme MySHSMU \
             -configuration Debug \
@@ -125,10 +128,13 @@ jobs:
             CODE_SIGNING_ALLOWED=NO > /tmp/test.log 2>&1
           status=$?
           echo "xcodebuild exit status: $status"
+          echo "=== compile errors ==="
+          grep -E "(error|warning):" /tmp/test.log | sed 's|/Users/runner/work/[^ ]*/||' | sort -u | head -120
           echo "=== failures ==="
-          grep -E "(error|failed|XCTAssert)" /tmp/test.log | sed 's|/Users/runner/work/[^ ]*/||' | sort -u | head -120
+          grep -E "(XCTAssert|XCTUnwrap|Test Case .*(passed|failed)|Failing tests)" /tmp/test.log \
+            | sed 's|/Users/runner/work/[^ ]*/||' | sort -u | head -120
           echo "=== summary ==="
-          grep -E "Test Suite|Executed .* tests|TEST (SUCCEEDED|FAILED)" /tmp/test.log | tail -20
+          grep -E "Test Suite|Executed [0-9]+ test|TEST (SUCCEEDED|FAILED)" /tmp/test.log | tail -30
           exit $status
 
       - name: Upload the test log

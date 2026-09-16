@@ -24,6 +24,12 @@ settings:
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+  configs:
+    # Xcode's own app template sets this for Debug; XcodeGen does not, and
+    # without it `@testable import MySHSMU` fails to compile.
+    Debug:
+      ENABLE_TESTABILITY: YES
+      ONLY_ACTIVE_ARCH: YES
 
 targets:
   MySHSMU:
