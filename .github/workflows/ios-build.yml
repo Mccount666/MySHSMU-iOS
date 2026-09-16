@@ -200,3 +200,90 @@ jobs:
           name: test-log
           path: /tmp/test.log
           if-no-files-found: ignore
+
+  # Builds an unsigned .ipa for a physical iPhone. There is no way to sign for a
+  # device without either a Mac or a paid Apple Developer account, so this
+  # produces the bundle and leaves signing to a sideloading tool on the user's
+  # own machine (Sideloadly, AltStore) using their Apple ID.
+  #
+  # Built from the checked-in MySHSMU.xcodeproj on purpose: it contains only the
+  # app target. App Groups -- which the widget needs -- cannot be provisioned by
+  # a free Apple ID, so the widget is left out to keep signing trouble-free.
+  device-ipa:
+    runs-on: macos-15
+    timeout-minutes: 30
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build for a physical device
+        run: |
+          set +e
+          xcodebuild build -quiet \
+            -project MySHSMU.xcodeproj \
+            -scheme MySHSMU \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" > /tmp/device.log 2>&1
+          status=$?
+          echo "xcodebuild exit status: $status"
+          grep -E "(error|warning):" /tmp/device.log | sed 's|/Users/runner/work/[^ ]*/||' | sort -u | head -80
+          tail -15 /tmp/device.log
+          exit $status
+
+      - name: Package an unsigned .ipa
+        run: |
+          set -e
+          APP="build/device/Build/Products/Release-iphoneos/MySHSMU.app"
+          test -d "$APP" || { echo "no app bundle at $APP"; exit 1; }
+
+          # An .ipa is just a zip with the bundle under Payload/.
+          rm -rf ipa && mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+          cd ipa && zip -qry ../MySHSMU-unsigned.ipa Payload
+
+          echo "--- bundle ---"
+          ls -la Payload/MySHSMU.app | head -20
+          echo "--- ipa ---"
+          ls -la ../MySHSMU-unsigned.ipa
+          unzip -l ../MySHSMU-unsigned.ipa | head -15
+
+      # Verify the bundle really targets a device and carries no simulator slice.
+      - name: Sanity-check the bundle
+        run: |
+          set -e
+          APP="build/device/Build/Products/Release-iphoneos/MySHSMU.app"
+          BIN="$APP/MySHSMU"
+
+          echo "=== architecture ==="
+          lipo -info "$BIN"
+          lipo -info "$BIN" | grep -q arm64 || { echo "not an arm64 device build"; exit 1; }
+          if lipo -info "$BIN" | grep -q x86_64; then
+            echo "contains a simulator slice -- wrong platform"; exit 1
+          fi
+
+          echo "=== minimum iOS version ==="
+          otool -l "$BIN" | grep -A4 LC_BUILD_VERSION | grep -E "minos|platform" || true
+
+          echo "=== Info.plist essentials ==="
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP/Info.plist"
+
+          echo "=== unsigned (expected) ==="
+          codesign -dv "$APP" 2>&1 | head -5 || echo "not signed, as intended"
+
+      - name: Upload the unsigned .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: MySHSMU-unsigned-ipa
+          path: MySHSMU-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
