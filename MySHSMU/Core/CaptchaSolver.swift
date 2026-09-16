@@ -42,7 +42,10 @@ enum CaptchaSolver {
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         let once = ResumeOnce()
 
-        return await withCheckedContinuation { continuation in
+        // The continuation type is spelled out: leaving it to inference makes
+        // the compiler settle on `String` and then reject `ResumeOnce.attach`.
+        let recognised: String? = await withCheckedContinuation {
+            (continuation: CheckedContinuation<String?, Never>) in
             once.attach(continuation)
             request.completionHandler = { request, error in
                 if let error {
@@ -65,6 +68,7 @@ enum CaptchaSolver {
                 }
             }
         }
+        return recognised
     }
 
     /// Vision loses very small glyphs, and CAS captchas are around 80×30.
