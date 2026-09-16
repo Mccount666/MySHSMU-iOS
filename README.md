@@ -44,6 +44,31 @@ ios/
 
 ---
 
+## 验证状态
+
+这段代码是在 Windows 上写的，本机没有 Swift 编译器。它靠 GitHub Actions 的 macOS 机器实际编译验证过：
+
+| 检查项 | 状态 |
+|---|---|
+| App target 编译（手写 `MySHSMU.xcodeproj`） | ✅ 通过 |
+| App + Widget 编译（XcodeGen 生成的完整工程） | ✅ 通过 |
+| 单元测试 | ✅ **59 个全部通过，0 失败** |
+
+运行环境：GitHub `macos-15` runner，Xcode 16，iOS 26.2 模拟器（iPhone 17 Pro）。每次 `git push` 会自动重跑。
+
+**但有一点要说清楚：这个 App 从来没有被真正运行过。** 编译通过和测试通过不等于功能正确。以下都还没有被验证：
+
+- **界面**：没有任何一个屏幕被渲染出来看过。布局比例、滚动、分页手势、深色模式都是照着原版写的，没眼睛看过。
+- **登录流程**：没有用真实学号跑过 CAS 登录。证书链、WebVPN 跳转、Cookie 是否跨启动保持，全是未验证的。
+- **验证码识别率**：Vision 在真实 CAS 验证码上的准确率是未知的 —— 这决定了自动登录的成功率。原版用 ML Kit，两个引擎表现会有差异。
+- **`HTTPCookieStorage` 子类**：如果 URLSession 没有按预期调用我的覆写，登录态就无法持久化。这是最需要真机验证的一环。
+- **小组件**：编译过了，但没有配置 App Group，也没在模拟器上添加过。
+- **后端接口**：所有请求的 URL 拼接、参数编码都是照着 Kotlin 源码逐字移植的，但没有一个请求真正发出去过。
+
+拿到 Mac 之后，第一件该做的事就是跑一遍登录。
+
+---
+
 ## 怎么编译
 
 ### 方式一：直接打开手写工程（最快）
@@ -91,6 +116,8 @@ xcodebuild test -project MySHSMUAll.xcodeproj -scheme MySHSMU \
 3. 跑单元测试
 
 如果 `ios/` 是子目录，把 workflow 移到仓库根并设置 `defaults.run.working-directory: ios`。
+
+> ⚠️ 这个 workflow 里有个坑值得记一笔：最初的版本把 `xcodebuild` 通过管道接到 `tail` 上，于是整步的退出码来自 `tail` 而不是 `xcodebuild` —— 一个**编译失败**的运行被报成了绿色。现在改成写日志文件、单独 grep 错误、再原样传出 `xcodebuild` 的退出码。
 
 ---
 
