@@ -161,10 +161,12 @@ enum HtmlFormParser {
                         }
                         if index < html.endIndex { index = html.index(after: index) }
                     } else {
+                        // Unquoted values run until whitespace or `>`. HTML5
+                        // appends `/`, `=`, `<` etc. to the value rather than
+                        // terminating, which matters for `action=/cas/login`.
                         while index < html.endIndex,
                               !html[index].isWhitespace,
-                              html[index] != ">",
-                              html[index] != "/" {
+                              html[index] != ">" {
                             attributeValue.append(html[index])
                             index = html.index(after: index)
                         }

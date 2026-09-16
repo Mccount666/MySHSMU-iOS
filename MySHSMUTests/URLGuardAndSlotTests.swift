@@ -87,9 +87,19 @@ final class SlotResolverTests: XCTestCase {
         XCTAssertEqual(SlotResolver.startSlot(forMinutes: 8 * 60), 0)
         XCTAssertEqual(SlotResolver.startSlot(forMinutes: 8 * 60 + 50), 1)
         XCTAssertEqual(SlotResolver.startSlot(forMinutes: 9 * 60 + 40), 2)
-        XCTAssertEqual(SlotResolver.startSlot(forMinutes: 12 * 60), 5)
         XCTAssertEqual(SlotResolver.startSlot(forMinutes: 13 * 60 + 30), 6)
         XCTAssertEqual(SlotResolver.startSlot(forMinutes: 20 * 60 + 10), 14)
+    }
+
+    /// A 12:00 start belongs to the 11:20 period, not to the midday row.
+    ///
+    /// The match window is `[start, start + 41min)`, so 11:20 covers up to
+    /// 12:00 inclusive. The Kotlin code searches slots in the same order and
+    /// produces the same answer, so this is fidelity, not a bug.
+    func testMiddayStartFallsInTheElevenTwentyPeriod() {
+        XCTAssertEqual(SlotResolver.startSlot(forMinutes: 12 * 60), 4)
+        // 12:01 misses every window and falls back to the midday row.
+        XCTAssertEqual(SlotResolver.startSlot(forMinutes: 12 * 60 + 1), 5)
     }
 
     func testFallsBackToTheSameHourWhenOffGrid() {
@@ -118,10 +128,17 @@ final class SlotResolverTests: XCTestCase {
         )
     }
 
+    /// 12:00–13:00 ends in no period window at all, so the span comes from the
+    /// duration estimate: 60 minutes is two 50-minute rows.
     func testFallsBackToADurationEstimateWhenTheEndIsOffGrid() {
-        // 100 minutes is two 50-minute rows.
+        let matched = (0..<standardTimeSlots.count).contains { index in
+            let start = standardTimeSlots[index].startMinutes
+            return 13 * 60 >= start && 13 * 60 < start + slotMatchWindowMinutes
+        }
+        XCTAssertFalse(matched, "13:00 should not land in any slot window")
+
         XCTAssertEqual(
-            SlotResolver.slotCount(startSlot: 0, beginMinutes: 8 * 60, endMinutes: 8 * 60 + 100),
+            SlotResolver.slotCount(startSlot: 5, beginMinutes: 12 * 60, endMinutes: 13 * 60),
             2
         )
     }
