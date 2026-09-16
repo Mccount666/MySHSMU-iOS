@@ -94,7 +94,7 @@ final class MainViewModel {
         prefs.clearAll()
         cachedStart = nil
         cachedEnd = nil
-        PersistentCookieStorage.shared.clear()
+        PersistentCookieStorage.app.clear()
         reLoginTask?.cancel()
         reLoginTask = nil
         state = MySHSMUUiState()

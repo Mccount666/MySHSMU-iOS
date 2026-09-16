@@ -10,7 +10,12 @@ import Foundation
 /// the persistence policy stays ours.
 final class PersistentCookieStorage: HTTPCookieStorage {
 
-    static let shared = PersistentCookieStorage()
+    /// The app's single cookie store.
+    ///
+    /// Not named `shared`: `HTTPCookieStorage` already declares a static
+    /// `shared`, and Swift rejects re-declaring it as a stored property in a
+    /// subclass.
+    static let app = PersistentCookieStorage()
 
     private let defaultsKey = "CookiePrefs"
     private let store: UserDefaults

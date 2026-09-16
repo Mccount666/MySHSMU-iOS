@@ -38,7 +38,7 @@ final class ShsmuService: @unchecked Sendable {
     private static let loginSuccessMarker = "login_box"
     private static let maxLoginAttempts = 5
 
-    init(client: NetworkClient = .shared, cookieStorage: PersistentCookieStorage = .shared) {
+    init(client: NetworkClient = .shared, cookieStorage: PersistentCookieStorage = .app) {
         self.client = client
         self.cookieStorage = cookieStorage
     }

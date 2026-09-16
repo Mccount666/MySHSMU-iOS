@@ -29,7 +29,7 @@ final class NetworkClient: @unchecked Sendable {
 
     private let session: URLSession
 
-    init(cookieStorage: HTTPCookieStorage = PersistentCookieStorage.shared) {
+    init(cookieStorage: HTTPCookieStorage = PersistentCookieStorage.app) {
         let configuration = URLSessionConfiguration.default
         configuration.httpCookieStorage = cookieStorage
         configuration.httpShouldSetCookies = true
