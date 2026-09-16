@@ -26,5 +26,13 @@ struct MainTabView: View {
                 .tabItem { Label("设置", systemImage: "gearshape") }
                 .tag(3)
         }
+        .onAppear(perform: applyScreenshotTab)
+    }
+
+    /// Screenshot runs open a specific tab via `-uiDemoTab <n>`.
+    private func applyScreenshotTab() {
+        #if DEBUG
+        if let tab = DemoMode.tab { selectedTab = tab }
+        #endif
     }
 }

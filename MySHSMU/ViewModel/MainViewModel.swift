@@ -42,6 +42,22 @@ final class MainViewModel {
 
     private var notificationDismissTask: Task<Void, Never>?
 
+    #if DEBUG
+    /// Set when launched with `-uiDemoMode`, which seeds state for screenshots.
+    private var isDemoMode = false
+    #endif
+
+    /// Blocks every network entry point while demo data is on screen. Without
+    /// it the first request would fail, be read as an expired session, and drop
+    /// the app back to the login screen mid-capture.
+    private var suppressNetwork: Bool {
+        #if DEBUG
+        return isDemoMode
+        #else
+        return false
+        #endif
+    }
+
     private struct AutoReLoginFailed: LocalizedError {
         var message: String
         var errorDescription: String? { message }
@@ -51,9 +67,18 @@ final class MainViewModel {
         self.service = service
         self.prefs = prefs
 
+        #if DEBUG
+        isDemoMode = DemoMode.active
+        #endif
+
         loadPersistentData()
         checkAutoLogin()
         checkForUpdates()
+
+        #if DEBUG
+        // Seeded last so nothing above can overwrite it.
+        if DemoMode.isRequested { DemoMode.seed(&state) }
+        #endif
     }
 
     // MARK: - Persistence
@@ -180,6 +205,7 @@ final class MainViewModel {
     // MARK: - Curriculum
 
     func onWeekPageChanged(_ date: Date) {
+        guard !suppressNetwork else { return }
         guard let start = cachedStart, let end = cachedEnd else {
             fetchWeekData(from: AppCalendar.addWeeks(-2, to: date), to: AppCalendar.addWeeks(2, to: date))
             return
@@ -221,6 +247,7 @@ final class MainViewModel {
     }
 
     func onCourseSelected(_ course: CourseItem) {
+        guard !suppressNetwork else { return }
         Task { await performCourseDetail(course) }
     }
 
@@ -292,6 +319,7 @@ final class MainViewModel {
     // MARK: - Scores
 
     func fetchScoreData(year: String? = nil, semester: Int? = nil) {
+        guard !suppressNetwork else { return }
         guard state.isLoggedIn else { return }
         Task { await performFetchScoreData(year: year, semester: semester) }
     }
@@ -361,6 +389,7 @@ final class MainViewModel {
     // MARK: - Classrooms
 
     func ensureClassroomOptionsLoaded() {
+        guard !suppressNetwork else { return }
         guard state.isLoggedIn else { return }
         guard state.classroomCampusOptions.isEmpty else { return }
         Task { await loadClassroomOptions(type: "AnswerAuxiliaryCampus", area: nil, buildCode: nil, floorNo: nil, target: .campus) }
@@ -481,6 +510,7 @@ final class MainViewModel {
     }
 
     func fetchClassroomSchedule(_ date: Date) {
+        guard !suppressNetwork else { return }
         guard state.isLoggedIn else { return }
         guard let area = state.selectedCampusCode,
               let building = state.selectedBuildingCode,
@@ -564,6 +594,7 @@ final class MainViewModel {
     // MARK: - Updates
 
     func checkForUpdates(manual: Bool = false) {
+        guard !suppressNetwork else { return }
         guard !state.isCheckingUpdate else { return }
         Task { await performCheckForUpdates(manual: manual) }
     }

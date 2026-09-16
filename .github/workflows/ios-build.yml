@@ -1,8 +1,8 @@
 name: iOS build
 
 # Building an iOS app requires macOS and Xcode; nothing else can produce a
-# runnable .app. This workflow exists so the project can be compiled and its
-# test suite run on GitHub's macOS runners, without owning a Mac.
+# runnable .app. This workflow exists so the project can be compiled, its tests
+# run, and its UI captured on GitHub's macOS runners -- without owning a Mac.
 #
 # If this file lives at the repository root rather than inside `ios/`, set
 # `defaults.run.working-directory: ios` below and point the paths at `ios/…`.
@@ -16,6 +16,10 @@ on:
 defaults:
   run:
     working-directory: .
+
+env:
+  BUNDLE_ID: xyz.reqwey.myshsmu
+  DERIVED_DATA: build/dd
 
 jobs:
   build:
@@ -64,6 +68,7 @@ jobs:
             -scheme MySHSMU \
             -configuration Debug \
             -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build/dd-app \
             CODE_SIGNING_ALLOWED=NO > /tmp/build-app.log 2>&1
           status=$?
           echo "xcodebuild exit status: $status"
@@ -96,6 +101,7 @@ jobs:
             -scheme MySHSMU \
             -configuration Debug \
             -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath "$DERIVED_DATA" \
             CODE_SIGNING_ALLOWED=NO > /tmp/build-all.log 2>&1
           status=$?
           echo "xcodebuild exit status: $status"
@@ -113,7 +119,56 @@ jobs:
           path: /tmp/build-all.log
           if-no-files-found: ignore
 
-      # 3. And the test suite has to pass.
+      # 3. Run the app in the simulator and photograph it.
+      #
+      # There is no account to log in with on a runner, so the app is launched
+      # with `-uiDemoMode`, a DEBUG-only switch that seeds invented data and
+      # short-circuits every network call. `-uiDemoTab <n>` opens one tab per
+      # capture. `-uiDemoLogin` leaves the login screen alone but still blocks
+      # the update check, which would otherwise raise a dialog over it.
+      - name: Capture simulator screenshots
+        run: |
+          set -e
+          UDID="${{ steps.sim.outputs.udid }}"
+          APP="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/MySHSMU.app"
+
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+
+          test -d "$APP" || { echo "app bundle not found at $APP"; exit 1; }
+          xcrun simctl install "$UDID" "$APP"
+
+          mkdir -p screenshots
+          # Capture one screen at a time. The flags travel as SIMCTL_CHILD_*
+          # environment variables because `simctl launch` can mistake a leading
+          # `-` for one of its own options.
+          capture() {
+            local name="$1"; shift
+            xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
+            sleep 1
+            env "$@" xcrun simctl launch "$UDID" "$BUNDLE_ID" >/dev/null
+            sleep 6
+            xcrun simctl io "$UDID" screenshot "screenshots/$name.png"
+            echo "captured $name"
+          }
+
+          capture 0-login      SIMCTL_CHILD_UI_DEMO_LOGIN=1
+          capture 1-curriculum SIMCTL_CHILD_UI_DEMO_MODE=1 SIMCTL_CHILD_UI_DEMO_TAB=0
+          capture 2-classroom  SIMCTL_CHILD_UI_DEMO_MODE=1 SIMCTL_CHILD_UI_DEMO_TAB=1
+          capture 3-scores     SIMCTL_CHILD_UI_DEMO_MODE=1 SIMCTL_CHILD_UI_DEMO_TAB=2
+          capture 4-settings   SIMCTL_CHILD_UI_DEMO_MODE=1 SIMCTL_CHILD_UI_DEMO_TAB=3
+
+          ls -la screenshots
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-screenshots
+          path: screenshots/*.png
+          if-no-files-found: warn
+
+      # 4. And the test suite has to pass.
       #
       # No `-quiet` here: it swallows the failure detail, leaving only
       # "TEST FAILED" and an exit code.
@@ -125,6 +180,7 @@ jobs:
             -scheme MySHSMU \
             -configuration Debug \
             -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath "$DERIVED_DATA" \
             CODE_SIGNING_ALLOWED=NO > /tmp/test.log 2>&1
           status=$?
           echo "xcodebuild exit status: $status"
