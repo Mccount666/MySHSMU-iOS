@@ -9,7 +9,9 @@ import WidgetKit
 // to a second target. The parsing rules and palette match
 // `Core/CurriculumUtils.swift` — keep the two in step if either changes.
 
-private struct WidgetCourse: Identifiable {
+/// Plain value type for one class in the widget's list. Internal rather than
+/// private because `CurriculumEntry` exposes an array of these.
+struct WidgetCourse: Identifiable {
     let id: String
     let title: String
     let location: String

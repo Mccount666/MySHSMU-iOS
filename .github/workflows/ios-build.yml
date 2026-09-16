@@ -19,9 +19,9 @@ defaults:
 
 jobs:
   build:
-    # macos-15 ships Xcode 16; `macos-latest` is kept as the fallback name.
+    # macos-15 ships Xcode 16.
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
@@ -50,16 +50,36 @@ jobs:
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           echo "Using simulator $UDID"
 
+      # Note on `-quiet`: it suppresses the thousands of CompileSwift lines but
+      # still prints every error and warning. The exit status is read directly
+      # rather than through a pipe -- piping into `tail` would replace
+      # xcodebuild's status with tail's and report failures as successes.
+      #
       # 1. The checked-in, dependency-free project must build on its own.
       - name: Build the app (checked-in project)
         run: |
-          xcodebuild build \
+          set +e
+          xcodebuild build -quiet \
             -project MySHSMU.xcodeproj \
             -scheme MySHSMU \
             -configuration Debug \
             -destination "id=${{ steps.sim.outputs.udid }}" \
-            CODE_SIGNING_ALLOWED=NO \
-            | tail -40
+            CODE_SIGNING_ALLOWED=NO > /tmp/build-app.log 2>&1
+          status=$?
+          echo "xcodebuild exit status: $status"
+          echo "=== errors and warnings ==="
+          grep -E "(error|warning):" /tmp/build-app.log | sed 's|/Users/runner/work/[^ ]*/||' | sort -u | head -120
+          echo "=== last lines ==="
+          tail -20 /tmp/build-app.log
+          exit $status
+
+      - name: Upload the app build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-app-log
+          path: /tmp/build-app.log
+          if-no-files-found: ignore
 
       # 2. The generated project adds the widget extension and the test target.
       - name: Install XcodeGen
@@ -70,20 +90,51 @@ jobs:
 
       - name: Build the full project (app + widget)
         run: |
-          xcodebuild build \
+          set +e
+          xcodebuild build -quiet \
             -project MySHSMUAll.xcodeproj \
             -scheme MySHSMU \
             -configuration Debug \
             -destination "id=${{ steps.sim.outputs.udid }}" \
-            CODE_SIGNING_ALLOWED=NO \
-            | tail -40
+            CODE_SIGNING_ALLOWED=NO > /tmp/build-all.log 2>&1
+          status=$?
+          echo "xcodebuild exit status: $status"
+          echo "=== errors and warnings ==="
+          grep -E "(error|warning):" /tmp/build-all.log | sed 's|/Users/runner/work/[^ ]*/||' | sort -u | head -120
+          echo "=== last lines ==="
+          tail -20 /tmp/build-all.log
+          exit $status
 
+      - name: Upload the full build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-all-log
+          path: /tmp/build-all.log
+          if-no-files-found: ignore
+
+      # 3. And the test suite has to pass.
       - name: Run the unit tests
         run: |
-          xcodebuild test \
+          set +e
+          xcodebuild test -quiet \
             -project MySHSMUAll.xcodeproj \
             -scheme MySHSMU \
             -configuration Debug \
             -destination "id=${{ steps.sim.outputs.udid }}" \
-            CODE_SIGNING_ALLOWED=NO \
-            | tail -80
+            CODE_SIGNING_ALLOWED=NO > /tmp/test.log 2>&1
+          status=$?
+          echo "xcodebuild exit status: $status"
+          echo "=== failures ==="
+          grep -E "(error|failed|XCTAssert)" /tmp/test.log | sed 's|/Users/runner/work/[^ ]*/||' | sort -u | head -120
+          echo "=== summary ==="
+          grep -E "Test Suite|Executed .* tests|TEST (SUCCEEDED|FAILED)" /tmp/test.log | tail -20
+          exit $status
+
+      - name: Upload the test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: /tmp/test.log
+          if-no-files-found: ignore
