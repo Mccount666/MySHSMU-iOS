@@ -1,0 +1,155 @@
+# 酱紫办 / MySHSMU — iOS 版
+
+这是 [tototwoto/MySHSMU](https://github.com/tototwoto/MySHSMU)（Android / Kotlin / Jetpack Compose）的 iOS 移植，用 **SwiftUI + async/await** 重写，功能对齐原版：CAS 自动登录（含验证码识别）、课程表、教室占用查询、成绩查询、设置。
+
+原项目的后端接口、加密方式、颜色算法等都被完整保留，**没有修改任何服务端协议**。
+
+---
+
+## ⚠️ 先读这一段：编译必须有 Mac
+
+iOS 应用**只能**在 macOS + Xcode 上编译。这不是配置问题，是平台限制：
+
+- iOS 模拟器是 Xcode 的一个组件，Windows 上不存在。
+- ZCode 的 `ios-simulator` 插件在 `preflight` 里第一项检查就是 `process.platform === "darwin"`，还要求 `xcodebuild` / `xcrun` / `simctl` 全部可用 —— 在 Windows 上这四项检查都会失败。
+- 没有合法的 Windows 编译 iOS 的方案。
+
+如果你手边没有 Mac，有两条路：
+
+| 方案 | 说明 |
+|---|---|
+| **GitHub Actions（推荐）** | 推到 GitHub，`.github/workflows/ios-build.yml` 会在 GitHub 的 macOS 机器上编译 + 跑单元测试。免费额度足够，不用买设备，但**不能**手动点开模拟器看界面。 |
+| **租/买一台 Mac** | Mac mini M1 二手是性价比最高的选择；云端可选 MacinCloud、MacStadium、GitHub Codespaces 不支持 macOS。只有这样才能真正跑模拟器看效果。 |
+
+---
+
+## 目录结构
+
+```
+ios/
+├── MySHSMU.xcodeproj/          ← 手写的工程文件，只含 App target，双击即可打开
+├── project.yml                 ← XcodeGen 配置，生成「App + 小组件 + 测试」完整工程
+├── MySHSMU/                    ← App 源码（44xx 行 Swift）
+│   ├── App/                    ← @main 入口
+│   ├── Core/                   ← 网络、Cookie、RSA、验证码、HTML 解析、日期、编码
+│   ├── Models/                 ← 数据模型 + 根 UI 状态
+│   ├── Service/                ← ShsmuService，教务接口封装
+│   ├── ViewModel/              ← MainViewModel，业务逻辑
+│   ├── UI/                     ← SwiftUI 界面（登录/课程/教室/成绩/设置）
+│   └── Assets.xcassets/        ← 应用图标（由 Android 图标合成）、主题色
+├── MySHSMUWidget/              ← WidgetKit 小组件（今日剩余课程）
+├── MySHSMUTests/               ← 单元测试
+└── .github/workflows/          ← macOS 云端编译 + 测试
+```
+
+---
+
+## 怎么编译
+
+### 方式一：直接打开手写工程（最快）
+
+```bash
+open MySHSMU.xcodeproj
+```
+
+选中 `MySHSMU` scheme → 选一台 iPhone 模拟器 → `⌘R`。
+
+这个工程用手写的 `project.pbxproj`，用 Xcode 16 的 **文件系统同步目录组**（`PBXFileSystemSynchronizedRootGroup`），所以往 `MySHSMU/` 里加文件不需要改工程文件。需要 **Xcode 16 或更新版本**。
+
+### 方式二：生成完整工程（含小组件和测试）
+
+```bash
+brew install xcodegen
+xcodegen generate
+open MySHSMUAll.xcodeproj
+```
+
+生成的 `MySHSMUAll.xcodeproj` 是手写工程的超集，多出 Widget 扩展和单元测试 target。两个工程用不同的名字，不会互相覆盖。
+
+### 跑测试
+
+```bash
+xcodebuild test -project MySHSMUAll.xcodeproj -scheme MySHSMU \
+  -destination 'platform=iOS Simulator,name=iPhone 16'
+```
+
+测试覆盖的是移植过程中最容易出错、又不需要真实账号就能验证的部分：
+
+- **`WireEncodingTests`** — 表单/查询串编码必须和 OkHttp 逐字节一致。密码是 base64 的 RSA 密文，含 `+` `/` `=`，编码错一个字符服务端就拒绝登录。
+- **`RsaCryptoTests`** — PEM → SPKI 解包 → PKCS#1 → `SecKey` → 加密，并用运行时生成的密钥对做加解密往返验证。
+- **`CaptchaSolverTests`** — 验证码文本清洗与算式求值（`3x4=?` → `12`）。
+- **`HtmlFormParserTests`** — CAS 登录表单解析：action 绝对化、字段顺序、跳过 submit、验证码图片 URL、注释/脚本干扰。
+- **`URLGuardTests`** — 出站地址校验。
+- **`CurriculumUtilsTests` / `AppCalendarTests`** — Java 字符串哈希（决定课程配色）、日期语义、周次计算。
+
+### 云端编译（没有 Mac 时）
+
+把 `ios/` 作为仓库根目录推上去，Actions 会自动：
+
+1. 编译手写的 `MySHSMU.xcodeproj`
+2. 用 XcodeGen 生成完整工程，编译 App + 小组件
+3. 跑单元测试
+
+如果 `ios/` 是子目录，把 workflow 移到仓库根并设置 `defaults.run.working-directory: ios`。
+
+---
+
+## 移植对照表
+
+| Android | iOS | 说明 |
+|---|---|---|
+| Kotlin + Jetpack Compose | Swift + SwiftUI | `@Observable` + `@MainActor` 替代 `StateFlow` + `viewModelScope` |
+| Material 3 动态取色 | 固定紫色主题 | iOS 没有壁纸取色，用原版 `Color.kt` 里的 fallback 配色 |
+| OkHttp + 自定义 `CookieJar` | `URLSession` + `HTTPCookieStorage` 子类 | 同样是按 host 做键、JSON 持久化 |
+| Jsoup | `HtmlFormParser` | 自研轻量解析器，只解析登录表单需要的三项 |
+| ML Kit 文字识别 | Vision `VNRecognizeTextRequest` | 都关掉语言纠正，避免把 `1+2=?` 当成句子 |
+| `java.security` RSA | Security.framework `SecKeyCreateEncryptedData` | PKCS#1 v1.5 填充 |
+| `SharedPreferences` | `UserDefaults` + Keychain | 密码改存 Keychain（原版是明文 SharedPreferences） |
+| Glance 小组件 | WidgetKit 小组件 | 需要配置 App Group |
+| `NavigationSuiteScaffold` | `TabView` | 四个标签页 |
+
+### 刻意保留的细节
+
+这些地方看起来可以「优化」，但改了就会和原版行为不一致，所以照搬了：
+
+- **课程配色**用 Java 的 `String.hashCode()` 实现（`h = h*31 + c`，32 位回绕），不是 Swift 的 `hashValue`。Swift 的哈希每次进程启动都随机，用它的话课程颜色每次打开都会变。
+- **URL 里的空查询参数标记**（`?vpn-12-o2-jwstu.shsmu.edu.cn`）没有等号，是这个 WebVPN 的约定，原样保留。
+- **教室接口的参数拼写 `buliding`** 是后端写错的，必须跟着错。
+- **课表时间段**（`08:00–08:40` 等 15 个时段）与 40 分钟匹配窗口完全照搬。
+- **登录重试 5 次**，每次换一张验证码。
+
+### 有意的改动
+
+- 密码存 **Keychain** 而不是明文。
+- **成绩查询的默认学年**由当前日期推导，原版硬编码 `"2025-2026"`，过了这个学年首次进入成绩页会先查错年份再纠正。
+- 分页器范围有限（课程 ±260 周、教室 ±365 天），原版是 `Int.MAX_VALUE` 页；`TabView` 用不了无限页数，实际使用范围完全够。
+- 所有出站请求先做一次地址校验：只允许 http/https，拒绝 localhost、环回、私有和保留地址。
+
+---
+
+## 已知限制
+
+- **应用显示名**在工程文件里用 Xcode 的 `\U` 转义写成 `酱紫办`（`INFOPLIST_KEY_CFBundleDisplayName`）。如果主屏上显示的不是中文名，在 Xcode 里选中 target → General → Display Name 改一下即可。
+- **「检查更新」指向 Android 版**。`update.json` 里是 APK 的下载地址和 `versionCode`。iOS 版的 `CURRENT_PROJECT_VERSION` 设成 30、`MARKETING_VERSION` 设成 3.0 与 Android 对齐，所以版本比较逻辑一致；点「立即更新」会在 Safari 里打开发布页，而不是安装新版本。
+- **小组件默认不生效**。需要在 Xcode 里给 App 和 Widget 两个 target 都加上 App Group `group.xyz.reqwey.myshsmu` 能力。没配也能跑，`Preferences` 会自动回退到标准 `UserDefaults`（只是小组件读不到数据）。
+- **Cookie 持久化依赖 `HTTPCookieStorage` 子类**。这是 Apple 文档标注可子类化的扩展点。如果登录状态无法跨启动保持，先检查这里；即使它失效，应用的自动重新登录也能兜住，只是每次冷启动都要重新过一次验证码。
+- 应用图标是从 Android 的自适应图标（背景 + 前景两层）合成的 1024×1024，不是专业设计的 iOS 图标，没有 dark/tinted 变体。
+
+## 维护脚本
+
+仓库根目录下有三个 Python 检查脚本，是移植过程中用来替代编译器做静态校对的（已在 `.gitignore` 里）：
+
+| 脚本 | 作用 |
+|---|---|
+| `_syntax_check.py` | 逐文件检查括号配平、顶层类型重名、统计行数 |
+| `_symbol_check.py` | 交叉比对「引用的类型/成员」与「定义的」，找出漏写 |
+| `_dup_check.py` | 找出同一签名被定义两次的成员（重构后最容易踩的坑） |
+| `_pbxproj_check.py` | 校对手写工程文件：括号配平、UUID 有无悬空引用、是否纯 ASCII |
+
+它们在校验阶段确实抓到过真实问题（一个重复的 `throwIfSessionExpired` 定义、一个会让 HTML 扫描器死循环的畸形标记）。有 Mac 之后就不需要了，`xcodebuild` 说得更准。
+
+---
+
+## 免责声明
+
+本项目是第三方客户端，与上海交通大学医学院官方无关。请自行评估使用风险，妥善保管账号密码。

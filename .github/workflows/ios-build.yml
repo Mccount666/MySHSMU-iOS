@@ -1,0 +1,89 @@
+name: iOS build
+
+# Building an iOS app requires macOS and Xcode; nothing else can produce a
+# runnable .app. This workflow exists so the project can be compiled and its
+# test suite run on GitHub's macOS runners, without owning a Mac.
+#
+# If this file lives at the repository root rather than inside `ios/`, set
+# `defaults.run.working-directory: ios` below and point the paths at `ios/…`.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: .
+
+jobs:
+  build:
+    # macos-15 ships Xcode 16; `macos-latest` is kept as the fallback name.
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show the toolchain
+        run: |
+          xcodebuild -version
+          echo "--- available simulators ---"
+          xcrun simctl list devices available | grep -i iphone | head -10
+
+      - name: Pick a booted-capable iPhone simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available --json | python3 -c "
+          import json, sys
+          devices = json.load(sys.stdin)['devices']
+          for runtime in sorted(devices, reverse=True):
+              if 'iOS' not in runtime:
+                  continue
+              for device in devices[runtime]:
+                  if device['name'].startswith('iPhone'):
+                      print(device['udid'])
+                      raise SystemExit
+          raise SystemExit('no iPhone simulator found')
+          ")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Using simulator $UDID"
+
+      # 1. The checked-in, dependency-free project must build on its own.
+      - name: Build the app (checked-in project)
+        run: |
+          xcodebuild build \
+            -project MySHSMU.xcodeproj \
+            -scheme MySHSMU \
+            -configuration Debug \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            | tail -40
+
+      # 2. The generated project adds the widget extension and the test target.
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the full project
+        run: xcodegen generate
+
+      - name: Build the full project (app + widget)
+        run: |
+          xcodebuild build \
+            -project MySHSMUAll.xcodeproj \
+            -scheme MySHSMU \
+            -configuration Debug \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            | tail -40
+
+      - name: Run the unit tests
+        run: |
+          xcodebuild test \
+            -project MySHSMUAll.xcodeproj \
+            -scheme MySHSMU \
+            -configuration Debug \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            | tail -80

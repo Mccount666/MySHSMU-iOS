@@ -1,0 +1,10 @@
+# The project is authored on Windows and built on macOS; normalise line
+# endings so the Xcode project and YAML stay byte-stable across both.
+* text=auto eol=lf
+
+*.png binary
+*.xcassets/** binary
+*.pbxproj text eol=lf
+*.swift text eol=lf
+*.yml text eol=lf
+*.plist text eol=lf
