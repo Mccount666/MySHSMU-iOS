@@ -64,6 +64,60 @@ ios/
 
 ---
 
+## 装到真机上
+
+模拟器构建和真机构建是两回事，**签名是唯一的门槛**：给真机签名要么需要 Mac 上的 Xcode，要么需要付费开发者账号。这里两条都不具备，所以 CI 只产出**未签名**的 `.ipa`，签名交给你自己机器上的侧载工具用你的 Apple ID 完成。
+
+### 方式一：有 Mac（推荐，最省事）
+
+```bash
+open MySHSMU.xcodeproj
+```
+
+选中 `MySHSMU` scheme → 顶上设备选你的 iPhone → `⌘R`。Xcode 会让你登录 Apple ID 自动签名。
+
+### 方式二：没有 Mac，用 Sideloadly（Windows）
+
+1. 到 GitHub 仓库的 **Actions** → 最新一次 `iOS build` → 下载 **`MySHSMU-unsigned-ipa`** 工件，解压得到 `MySHSMU-unsigned.ipa`。
+
+2. 在 Windows 上装 [Sideloadly](https://sideloadly.io/)。它需要 Apple 的驱动：去 apple.com 下载安装 **iTunes**（**不要**用 Microsoft Store 版本，那个不带驱动）。
+
+3. iPhone 用数据线连电脑，手机上点「信任此电脑」。
+
+4. 打开 Sideloadly：把 `MySHSMU-unsigned.ipa` 拖进去 → 填你的 Apple ID → Start。它会用你的免费账号重新签名并安装。
+
+5. 手机上如果打不开，去 **设置 → 通用 → VPN 与设备管理**，信任你的开发者证书。
+
+6. iOS 16 以上必须打开开发者模式：**设置 → 隐私与安全性 → 开发者模式** → 打开 → 重启手机。
+
+### 方式三：付费开发者账号（$99/年）
+
+有了账号就能用 TestFlight，装完 90 天不用管，也不用连电脑续期；小组件也能正常用（App Group 需要付费账号才能配置）。告诉我，我可以往 CI 里加一个上传 TestFlight 的任务。
+
+### 免费账号的限制（务必知道）
+
+| | 免费 Apple ID | 付费账号 |
+|---|---|---|
+| 有效期 | **7 天**，过期后 App 打不开 | 1 年 |
+| 续期 | 重跑一次 Sideloadly | 无需 |
+| 同时侧载 | 最多 3 个 App | — |
+| App Group（小组件） | ❌ 不支持 | ✅ |
+
+**7 天过期是硬限制**，不是这里的配置问题 —— 所有免费侧载都一样。过期后图标还在但点了闪退，重跑 Sideloadly 即可续上，数据不会丢。
+
+### 这个 IPA 里没有什么
+
+- **没有小组件**。它是用只含 App target 的 `MySHSMU.xcodeproj` 构建的。小组件需要 App Group，而免费 Apple ID 无法配置该能力，硬要嵌进去只会导致签名失败。
+- **要求 iOS 17 或更高**。CI 里核实过：`minos 17.0`，`arm64` 单架构，无模拟器切片。
+
+### 第一次打开会看到什么
+
+登录页。填学号密码，点登录 —— App 会去拉验证码图片、用 Vision 在本地识别、算出结果再提交。识别错了会自动换一张重试，最多 5 次。
+
+**但这条路径完全没有被验证过。** 上面的截图是用虚构数据拍的，真实的 CAS 登录一次都没跑过。如果登录失败，页面顶部会弹一条错误提示，把提示文字告诉我，我来定位。
+
+---
+
 ## 验证状态
 
 这段代码是在 Windows 上写的，本机没有 Swift 编译器。它靠 GitHub Actions 的 macOS 机器实际编译、运行并验证：
