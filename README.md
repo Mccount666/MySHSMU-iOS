@@ -259,3 +259,8 @@ xcodebuild test -project MySHSMUAll.xcodeproj -scheme MySHSMU \
 ## 免责声明
 
 本项目是第三方客户端，与上海交通大学医学院官方无关。请自行评估使用风险，妥善保管账号密码。
+
+## Contributors
+
+- [Mccount666](https://github.com/Mccount666) — 项目作者
+- [Claude](https://claude.ai) — AI 辅助开发
